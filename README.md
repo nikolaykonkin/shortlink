@@ -1,2 +1,25 @@
 # shortlink
-A URL shortener REST API in Go with click analytics, built incrementally to demonstrate concurrency patterns, clean architecture, and test-driven fixes.
+
+REST API для сокращения ссылок на Go, с аналитикой переходов. Проект
+реализуется пошагово, коммит за коммитом, чтобы продемонстрировать
+паттерны конкурентности, чистую архитектуру и разработку через тесты.
+
+## Статус
+
+🚧 В разработке — собирается пошагово, коммит за коммитом.
+
+## Стек
+
+- Go (`net/http`, роутер из стандартной библиотеки)
+- PostgreSQL
+- Redis (кэш для «горячих» ссылок)
+- JWT-аутентификация
+- Docker
+
+## Запуск локально
+
+```bash
+go run ./cmd/api
+```
+
+Health-check: `GET /api/health`

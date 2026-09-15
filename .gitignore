@@ -1,0 +1,14 @@
+# Binaries
+/shortlink
+/api
+*.exe
+
+# Env files
+.env
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
