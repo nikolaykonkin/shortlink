@@ -7,7 +7,7 @@ import (
 )
 
 func main() {
-	// Порт берем из окружения — пригодится для Docker и деплоя.
+	// Порт берем из окружения — пригодится для Docker и деплоя
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -22,7 +22,7 @@ func main() {
 	}
 }
 
-// healthHandler — базовый health-check, чтобы убедиться, что сервис жив.
+// healthHandler — базовый health-check, чтобы убедиться, что сервис жив
 func healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("ok"))
