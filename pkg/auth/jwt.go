@@ -45,7 +45,6 @@ func GenerateToken(userID int64, secret []byte, ttl time.Duration) (string, time
 	return signed, expiresAt, nil
 }
 
-
 // ParseToken проверяет подпись и срок действия, возвращает ID пользователя из claims
 func ParseToken(tokenString string, secret []byte) (int64, error) {
 	claims := &Claims{}

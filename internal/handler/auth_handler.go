@@ -2,11 +2,9 @@ package handler
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"time"
 
-	"github.com/nikolaykonkin/shortlink/internal/apperrors"
 	"github.com/nikolaykonkin/shortlink/internal/model"
 	"github.com/nikolaykonkin/shortlink/internal/service"
 )
@@ -37,12 +35,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 	user, err := h.users.Register(r.Context(), req)
 	if err != nil {
-		// известные доменные ошибки маппятся явно, остальное — 500
-		if errors.Is(err, apperrors.ErrDuplicateUser) {
-			http.Error(w, err.Error(), http.StatusConflict)
-			return
-		}
-		http.Error(w, "внутренняя ошибка сервера", http.StatusInternalServerError)
+		respondError(w, err)
 		return
 	}
 
@@ -59,11 +52,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	token, expiresAt, err := h.users.Login(r.Context(), req)
 	if err != nil {
-		if errors.Is(err, apperrors.ErrInvalidCredentials) {
-			http.Error(w, err.Error(), http.StatusUnauthorized)
-			return
-		}
-		http.Error(w, "внутренняя ошибка сервера", http.StatusInternalServerError)
+		respondError(w, err)
 		return
 	}
 
