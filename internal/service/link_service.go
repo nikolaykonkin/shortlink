@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/nikolaykonkin/shortlink/internal/apperrors"
 	"github.com/nikolaykonkin/shortlink/internal/model"
@@ -76,6 +77,24 @@ func (s *LinkService) createWithCode(
 	response := link.ToResponse()
 
 	return &response, nil
+}
+
+// Resolve возвращает ссылку по короткому коду для редиректа
+//
+// Просроченная ссылка (expires_at в прошлом) возвращается как ErrLinkNotFound,
+// не дожидаясь фонового воркера очистки — иначе редирект продолжал бы
+// работать до случайного момента, когда воркер дойдет до этой строки
+func (s *LinkService) Resolve(ctx context.Context, shortCode string) (*model.Link, error) {
+	link, err := s.links.GetByShortCode(ctx, shortCode)
+	if err != nil {
+		return nil, err
+	}
+
+	if link.ExpiresAt != nil && link.ExpiresAt.Before(time.Now()) {
+		return nil, apperrors.ErrLinkNotFound
+	}
+
+	return link, nil
 }
 
 // generateShortCode возвращает случайную строку длины n в алфавите base62

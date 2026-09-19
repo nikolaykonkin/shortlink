@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/nikolaykonkin/shortlink/internal/handler"
+	"github.com/nikolaykonkin/shortlink/internal/middleware"
 	"github.com/nikolaykonkin/shortlink/internal/repository"
 	"github.com/nikolaykonkin/shortlink/internal/service"
 	"github.com/nikolaykonkin/shortlink/pkg/database"
@@ -54,10 +55,18 @@ func main() {
 	userService := service.NewUserService(userRepo, []byte(jwtSecret), jwtTTL)
 	authHandler := handler.NewAuthHandler(userService)
 
+	linkRepo := repository.NewPostgresLinkRepository(pool)
+	linkService := service.NewLinkService(linkRepo)
+	linkHandler := handler.NewLinkHandler(linkService)
+
+	requireAuth := middleware.AuthMiddleware([]byte(jwtSecret))
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", healthHandler)
 	mux.HandleFunc("POST /api/register", authHandler.Register)
 	mux.HandleFunc("POST /api/login", authHandler.Login)
+	mux.Handle("POST /api/links", requireAuth(http.HandlerFunc(linkHandler.Create)))
+	mux.HandleFunc("GET /{shortCode}", linkHandler.Redirect)
 
 	log.Printf("shortlink стартует на :%s", port)
 	if err := http.ListenAndServe(":"+port, mux); err != nil {
