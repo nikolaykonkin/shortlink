@@ -3,9 +3,10 @@ package apperrors
 import "errors"
 
 var (
-	ErrUserNotFound       = errors.New("пользователь не найден")
-	ErrDuplicateUser      = errors.New("пользователь с таким email уже существует")
-	ErrLinkNotFound       = errors.New("ссылка не найдена")
-	ErrDuplicateShortCode = errors.New("такой короткий код уже занят")
-	ErrInvalidCredentials = errors.New("неверный email или пароль")
+	ErrUserNotFound            = errors.New("пользователь не найден")
+	ErrDuplicateUser           = errors.New("пользователь с таким email уже существует")
+	ErrLinkNotFound            = errors.New("ссылка не найдена")
+	ErrDuplicateShortCode      = errors.New("такой короткий код уже занят")
+	ErrInvalidCredentials      = errors.New("неверный email или пароль")
+	ErrShortCodeSpaceExhausted = errors.New("не удалось подобрать свободный короткий код")
 )
