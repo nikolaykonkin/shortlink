@@ -56,8 +56,13 @@ func main() {
 	userService := service.NewUserService(userRepo, []byte(jwtSecret), jwtTTL)
 	authHandler := handler.NewAuthHandler(userService)
 
+	const (
+		clickBatchSize     = 50
+		clickFlushInterval = 5 * time.Second
+	)
+
 	clickRepo := repository.NewPostgresClickRepository(pool)
-	clickWorker := worker.NewClickWorker(clickRepo)
+	clickWorker := worker.NewClickWorker(clickRepo, clickBatchSize, clickFlushInterval)
 	go clickWorker.Run(ctx)
 
 	linkRepo := repository.NewPostgresLinkRepository(pool)

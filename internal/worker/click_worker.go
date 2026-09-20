@@ -8,26 +8,28 @@ import (
 	"github.com/nikolaykonkin/shortlink/internal/repository"
 )
 
-const (
-	clickChannelBuffer = 256
-	clickBatchSize     = 50
-	clickFlushInterval = 5 * time.Second
-)
+// clickChannelBuffer фиксирован — на прод-нагрузку не влияет так,
+// как размер батча и интервал флаша, которые нужно варьировать в тестах
+const clickChannelBuffer = 256
 
 // ClickWorker асинхронно накапливает клики и пишет их в БД пачками,
 // чтобы редирект не ждал вставки в базу
 type ClickWorker struct {
-	clicks repository.ClickRepository
-	queue  chan int64
-	done   chan struct{}
+	clicks        repository.ClickRepository
+	queue         chan int64
+	done          chan struct{}
+	batchSize     int
+	flushInterval time.Duration
 }
 
 // NewClickWorker создает воркер вместе с каналом приема кликов
-func NewClickWorker(clicks repository.ClickRepository) *ClickWorker {
+func NewClickWorker(clicks repository.ClickRepository, batchSize int, flushInterval time.Duration) *ClickWorker {
 	return &ClickWorker{
-		clicks: clicks,
-		queue:  make(chan int64, clickChannelBuffer),
-		done:   make(chan struct{}),
+		clicks:        clicks,
+		queue:         make(chan int64, clickChannelBuffer),
+		done:          make(chan struct{}),
+		batchSize:     batchSize,
+		flushInterval: flushInterval,
 	}
 }
 
@@ -41,10 +43,10 @@ func (w *ClickWorker) Record(linkID int64) {
 func (w *ClickWorker) Run(ctx context.Context) {
 	defer close(w.done)
 
-	ticker := time.NewTicker(clickFlushInterval)
+	ticker := time.NewTicker(w.flushInterval)
 	defer ticker.Stop()
 
-	batch := make([]int64, 0, clickBatchSize)
+	batch := make([]int64, 0, w.batchSize)
 
 	flush := func() {
 		if len(batch) == 0 {
@@ -64,7 +66,7 @@ func (w *ClickWorker) Run(ctx context.Context) {
 				return
 			}
 			batch = append(batch, linkID)
-			if len(batch) >= clickBatchSize {
+			if len(batch) >= w.batchSize {
 				flush()
 			}
 		case <-ticker.C:
