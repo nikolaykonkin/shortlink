@@ -79,6 +79,20 @@ func (s *LinkService) createWithCode(
 	return &response, nil
 }
 
+// Delete удаляет ссылку linkID, если она принадлежит userID
+func (s *LinkService) Delete(ctx context.Context, userID, linkID int64) error {
+	link, err := s.links.GetByID(ctx, linkID)
+	if err != nil {
+		return err
+	}
+
+	if link.UserID != userID {
+		return apperrors.ErrForbidden
+	}
+
+	return s.links.Delete(ctx, linkID)
+}
+
 // Resolve возвращает ссылку по короткому коду для редиректа
 //
 // Просроченная ссылка (expires_at в прошлом) возвращается как ErrLinkNotFound,

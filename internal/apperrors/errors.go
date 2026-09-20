@@ -9,4 +9,5 @@ var (
 	ErrDuplicateShortCode      = errors.New("такой короткий код уже занят")
 	ErrInvalidCredentials      = errors.New("неверный email или пароль")
 	ErrShortCodeSpaceExhausted = errors.New("не удалось подобрать свободный короткий код")
+	ErrForbidden               = errors.New("нет доступа к этому ресурсу")
 )

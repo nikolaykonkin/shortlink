@@ -66,6 +66,7 @@ func main() {
 	mux.HandleFunc("POST /api/register", authHandler.Register)
 	mux.HandleFunc("POST /api/login", authHandler.Login)
 	mux.Handle("POST /api/links", requireAuth(http.HandlerFunc(linkHandler.Create)))
+	mux.Handle("DELETE /api/links/{id}", requireAuth(http.HandlerFunc(linkHandler.Delete)))
 	mux.HandleFunc("GET /{shortCode}", linkHandler.Redirect)
 
 	log.Printf("shortlink стартует на :%s", port)

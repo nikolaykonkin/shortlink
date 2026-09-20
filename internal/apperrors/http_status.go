@@ -14,6 +14,8 @@ func ToHTTPStatus(err error) int {
 		return http.StatusConflict
 	case errors.Is(err, ErrInvalidCredentials):
 		return http.StatusUnauthorized
+	case errors.Is(err, ErrForbidden):
+		return http.StatusForbidden
 	case errors.Is(err, ErrShortCodeSpaceExhausted):
 		return http.StatusServiceUnavailable
 	default:
