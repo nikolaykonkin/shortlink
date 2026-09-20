@@ -12,6 +12,7 @@ import (
 	"github.com/nikolaykonkin/shortlink/internal/middleware"
 	"github.com/nikolaykonkin/shortlink/internal/repository"
 	"github.com/nikolaykonkin/shortlink/internal/service"
+	"github.com/nikolaykonkin/shortlink/internal/worker"
 	"github.com/nikolaykonkin/shortlink/pkg/database"
 )
 
@@ -55,8 +56,12 @@ func main() {
 	userService := service.NewUserService(userRepo, []byte(jwtSecret), jwtTTL)
 	authHandler := handler.NewAuthHandler(userService)
 
+	clickRepo := repository.NewPostgresClickRepository(pool)
+	clickWorker := worker.NewClickWorker(clickRepo)
+	go clickWorker.Run(ctx)
+
 	linkRepo := repository.NewPostgresLinkRepository(pool)
-	linkService := service.NewLinkService(linkRepo)
+	linkService := service.NewLinkService(linkRepo, clickWorker)
 	linkHandler := handler.NewLinkHandler(linkService)
 
 	requireAuth := middleware.AuthMiddleware([]byte(jwtSecret))

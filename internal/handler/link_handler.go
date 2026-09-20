@@ -53,6 +53,8 @@ func (h *LinkHandler) Redirect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.links.RecordClick(link.ID)
+
 	http.Redirect(w, r, link.OriginalURL, http.StatusFound)
 }
 

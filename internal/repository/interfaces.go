@@ -28,5 +28,6 @@ type LinkRepository interface {
 // ClickRepository описывает доступ к хранилищу переходов по ссылкам
 type ClickRepository interface {
 	Create(ctx context.Context, click *model.Click) error
+	CreateBatch(ctx context.Context, linkIDs []int64) error
 	CountByLinkID(ctx context.Context, linkID int64) (int64, error)
 }

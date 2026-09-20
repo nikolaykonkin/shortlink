@@ -46,6 +46,11 @@ func (f *fakeLinkRepository) DeleteExpired(_ context.Context, _ time.Time) (int6
 
 var _ repository.LinkRepository = (*fakeLinkRepository)(nil)
 
+// fakeClickRecorder — заглушка ClickRecorder для тестов, не связанных с подсчетом кликов
+type fakeClickRecorder struct{}
+
+func (f *fakeClickRecorder) Record(_ int64) {}
+
 func TestLinkService_Create_Success(t *testing.T) {
 	repo := &fakeLinkRepository{
 		createFunc: func(_ int, link *model.Link) error {
@@ -53,7 +58,7 @@ func TestLinkService_Create_Success(t *testing.T) {
 			return nil
 		},
 	}
-	svc := NewLinkService(repo)
+	svc := NewLinkService(repo, &fakeClickRecorder{})
 
 	resp, err := svc.Create(context.Background(), 42, model.LinkCreateRequest{OriginalURL: "https://example.com"})
 
@@ -72,7 +77,7 @@ func TestLinkService_Create_RetriesOnCollision(t *testing.T) {
 			return nil
 		},
 	}
-	svc := NewLinkService(repo)
+	svc := NewLinkService(repo, &fakeClickRecorder{})
 
 	resp, err := svc.Create(context.Background(), 42, model.LinkCreateRequest{OriginalURL: "https://example.com"})
 
@@ -87,7 +92,7 @@ func TestLinkService_Create_ExhaustsAttempts(t *testing.T) {
 			return apperrors.ErrDuplicateShortCode
 		},
 	}
-	svc := NewLinkService(repo)
+	svc := NewLinkService(repo, &fakeClickRecorder{})
 
 	resp, err := svc.Create(context.Background(), 42, model.LinkCreateRequest{OriginalURL: "https://example.com"})
 
@@ -103,7 +108,7 @@ func TestLinkService_Create_CustomAliasCollisionDoesNotRetry(t *testing.T) {
 			return apperrors.ErrDuplicateShortCode
 		},
 	}
-	svc := NewLinkService(repo)
+	svc := NewLinkService(repo, &fakeClickRecorder{})
 
 	resp, err := svc.Create(context.Background(), 42, model.LinkCreateRequest{
 		OriginalURL: "https://example.com",
@@ -124,7 +129,7 @@ func TestLinkService_Create_PropagatesUnrelatedRepositoryError(t *testing.T) {
 			return repoErr
 		},
 	}
-	svc := NewLinkService(repo)
+	svc := NewLinkService(repo, &fakeClickRecorder{})
 
 	resp, err := svc.Create(context.Background(), 42, model.LinkCreateRequest{OriginalURL: "https://example.com"})
 

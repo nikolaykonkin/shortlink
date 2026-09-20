@@ -19,14 +19,20 @@ const (
 	base62Alphabet  = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 )
 
+// ClickRecorder регистрирует переход по ссылке асинхронно, не блокируя вызывающий код
+type ClickRecorder interface {
+	Record(linkID int64)
+}
+
 // LinkService реализует создание коротких ссылок
 type LinkService struct {
-	links repository.LinkRepository
+	links  repository.LinkRepository
+	clicks ClickRecorder
 }
 
 // NewLinkService создает сервис ссылок
-func NewLinkService(links repository.LinkRepository) *LinkService {
-	return &LinkService{links: links}
+func NewLinkService(links repository.LinkRepository, clicks ClickRecorder) *LinkService {
+	return &LinkService{links: links, clicks: clicks}
 }
 
 // Create создает короткую ссылку для req.OriginalURL, привязанную к userID
@@ -109,6 +115,11 @@ func (s *LinkService) Resolve(ctx context.Context, shortCode string) (*model.Lin
 	}
 
 	return link, nil
+}
+
+// RecordClick регистрирует переход по ссылке linkID — отдельно от Resolve, чтобы поиск ссылки оставался чистой операцией без побочных эффектов
+func (s *LinkService) RecordClick(linkID int64) {
+	s.clicks.Record(linkID)
 }
 
 // generateShortCode возвращает случайную строку длины n в алфавите base62

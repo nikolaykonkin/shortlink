@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/nikolaykonkin/shortlink/internal/model"
@@ -32,6 +33,22 @@ func (r *PostgresClickRepository) Create(ctx context.Context, click *model.Click
 	err := r.pool.QueryRow(ctx, query, click.LinkID).Scan(&click.ID, &click.ClickedAt)
 	if err != nil {
 		return fmt.Errorf("создание клика: %w", err)
+	}
+
+	return nil
+}
+
+// CreateBatch вставляет клики одним COPY-запросом — id и clicked_at конкретных строк воркеру не нужны,
+// поэтому RETURNING здесь нет
+func (r *PostgresClickRepository) CreateBatch(ctx context.Context, linkIDs []int64) error {
+	rows := make([][]interface{}, len(linkIDs))
+	for i, linkID := range linkIDs {
+		rows[i] = []interface{}{linkID}
+	}
+
+	_, err := r.pool.CopyFrom(ctx, pgx.Identifier{"clicks"}, []string{"link_id"}, pgx.CopyFromRows(rows))
+	if err != nil {
+		return fmt.Errorf("пакетная вставка кликов: %w", err)
 	}
 
 	return nil
