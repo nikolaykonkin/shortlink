@@ -25,16 +25,25 @@ type ClickRecorder interface {
 	Record(linkID int64)
 }
 
+// ClickStats отдает накопленное число переходов по ссылке
+//
+// Отдельный от ClickRecorder интерфейс: запись асинхронна и живет в воркере,
+// а чтение — синхронный запрос в БД, и реализуют их разные компоненты
+type ClickStats interface {
+	CountByLinkID(ctx context.Context, linkID int64) (int64, error)
+}
+
 // LinkService реализует создание коротких ссылок
 type LinkService struct {
-	links  repository.LinkRepository
-	clicks ClickRecorder
-	cache  cache.Cacher
+	links      repository.LinkRepository
+	clicks     ClickRecorder
+	clickStats ClickStats
+	cache      cache.Cacher
 }
 
 // NewLinkService создает сервис ссылок
-func NewLinkService(links repository.LinkRepository, clicks ClickRecorder, linkCache cache.Cacher) *LinkService {
-	return &LinkService{links: links, clicks: clicks, cache: linkCache}
+func NewLinkService(links repository.LinkRepository, clicks ClickRecorder, clickStats ClickStats, linkCache cache.Cacher) *LinkService {
+	return &LinkService{links: links, clicks: clicks, clickStats: clickStats, cache: linkCache}
 }
 
 // Create создает короткую ссылку для req.OriginalURL, привязанную к userID
@@ -107,6 +116,32 @@ func (s *LinkService) Delete(ctx context.Context, userID, linkID int64) error {
 	return nil
 }
 
+// Stats возвращает статистику переходов по ссылке linkID, если она принадлежит userID
+//
+// В счетчик попадают только клики, уже записанные в БД: то, что еще лежит
+// в буфере воркера, появится после ближайшего сброса
+func (s *LinkService) Stats(ctx context.Context, userID, linkID int64) (*model.LinkStatsResponse, error) {
+	link, err := s.links.GetByID(ctx, linkID)
+	if err != nil {
+		return nil, err
+	}
+
+	if link.UserID != userID {
+		return nil, apperrors.ErrForbidden
+	}
+
+	count, err := s.clickStats.CountByLinkID(ctx, linkID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &model.LinkStatsResponse{
+		LinkID:     link.ID,
+		ShortCode:  link.ShortCode,
+		ClickCount: count,
+	}, nil
+}
+
 // Resolve возвращает ссылку по короткому коду для редиректа
 //
 // Просроченная ссылка (expires_at в прошлом) возвращается как ErrLinkNotFound,
@@ -140,7 +175,8 @@ func isExpired(link *model.Link) bool {
 	return link.ExpiresAt != nil && link.ExpiresAt.Before(time.Now())
 }
 
-// RecordClick регистрирует переход по ссылке linkID — отдельно от Resolve, чтобы поиск ссылки оставался чистой операцией без побочных эффектов
+// RecordClick регистрирует переход по ссылке linkID — отдельно от Resolve,
+// чтобы поиск ссылки оставался чистой операцией без побочных эффектов
 func (s *LinkService) RecordClick(linkID int64) {
 	s.clicks.Record(linkID)
 }

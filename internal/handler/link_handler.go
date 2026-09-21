@@ -79,3 +79,26 @@ func (h *LinkHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// Stats обрабатывает GET /api/links/{id}/stats
+func (h *LinkHandler) Stats(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		http.Error(w, "не удалось определить пользователя", http.StatusUnauthorized)
+		return
+	}
+
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.Error(w, "некорректный id ссылки", http.StatusBadRequest)
+		return
+	}
+
+	stats, err := h.links.Stats(r.Context(), userID, id)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, stats)
+}

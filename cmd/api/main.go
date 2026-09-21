@@ -74,7 +74,7 @@ func main() {
 	go scheduler.Run(ctx)
 
 	linkCache := cache.NewMemoryCache()
-	linkService := service.NewLinkService(linkRepo, clickWorker, linkCache)
+	linkService := service.NewLinkService(linkRepo, clickWorker, clickRepo, linkCache)
 	linkHandler := handler.NewLinkHandler(linkService)
 
 	requireAuth := middleware.AuthMiddleware([]byte(jwtSecret))
@@ -85,6 +85,7 @@ func main() {
 	mux.HandleFunc("POST /api/login", authHandler.Login)
 	mux.Handle("POST /api/links", requireAuth(http.HandlerFunc(linkHandler.Create)))
 	mux.Handle("DELETE /api/links/{id}", requireAuth(http.HandlerFunc(linkHandler.Delete)))
+	mux.Handle("GET /api/links/{id}/stats", requireAuth(http.HandlerFunc(linkHandler.Stats)))
 	mux.HandleFunc("GET /{shortCode}", linkHandler.Redirect)
 
 	log.Printf("shortlink стартует на :%s", port)

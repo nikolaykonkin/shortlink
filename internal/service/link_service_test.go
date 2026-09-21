@@ -19,9 +19,11 @@ import (
 //
 // Create делегирует в createFunc с номером попытки — это позволяет каждому тесту точно задать
 // поведение по счету вызова, не завися от того, какой именно код сгенерировал LinkService
+// GetByID так же делегирует в getByIDFunc
 type fakeLinkRepository struct {
 	createFunc  func(attempt int, link *model.Link) error
 	createCalls int
+	getByIDFunc func(id int64) (*model.Link, error)
 }
 
 func (f *fakeLinkRepository) Create(_ context.Context, link *model.Link) error {
@@ -33,8 +35,8 @@ func (f *fakeLinkRepository) GetByShortCode(_ context.Context, _ string) (*model
 	return nil, errors.New("не используется в этих тестах")
 }
 
-func (f *fakeLinkRepository) GetByID(_ context.Context, _ int64) (*model.Link, error) {
-	return nil, errors.New("не используется в этих тестах")
+func (f *fakeLinkRepository) GetByID(_ context.Context, id int64) (*model.Link, error) {
+	return f.getByIDFunc(id)
 }
 
 func (f *fakeLinkRepository) Delete(_ context.Context, _ int64) error {
@@ -52,6 +54,25 @@ type fakeClickRecorder struct{}
 
 func (f *fakeClickRecorder) Record(_ int64) {}
 
+// fakeClickStats — in-memory реализация ClickStats: счетчики кликов задаются по linkID,
+// calls позволяет проверить, что счетчик не запрашивался зря
+type fakeClickStats struct {
+	counts map[int64]int64
+	err    error
+	calls  int
+}
+
+func (f *fakeClickStats) CountByLinkID(_ context.Context, linkID int64) (int64, error) {
+	f.calls++
+	if f.err != nil {
+		return 0, f.err
+	}
+
+	return f.counts[linkID], nil
+}
+
+var _ ClickStats = (*fakeClickStats)(nil)
+
 func TestLinkService_Create_Success(t *testing.T) {
 	repo := &fakeLinkRepository{
 		createFunc: func(_ int, link *model.Link) error {
@@ -59,7 +80,7 @@ func TestLinkService_Create_Success(t *testing.T) {
 			return nil
 		},
 	}
-	svc := NewLinkService(repo, &fakeClickRecorder{}, cache.NewMemoryCache())
+	svc := NewLinkService(repo, &fakeClickRecorder{}, &fakeClickStats{}, cache.NewMemoryCache())
 
 	resp, err := svc.Create(context.Background(), 42, model.LinkCreateRequest{OriginalURL: "https://example.com"})
 
@@ -78,7 +99,7 @@ func TestLinkService_Create_RetriesOnCollision(t *testing.T) {
 			return nil
 		},
 	}
-	svc := NewLinkService(repo, &fakeClickRecorder{}, cache.NewMemoryCache())
+	svc := NewLinkService(repo, &fakeClickRecorder{}, &fakeClickStats{}, cache.NewMemoryCache())
 
 	resp, err := svc.Create(context.Background(), 42, model.LinkCreateRequest{OriginalURL: "https://example.com"})
 
@@ -93,7 +114,7 @@ func TestLinkService_Create_ExhaustsAttempts(t *testing.T) {
 			return apperrors.ErrDuplicateShortCode
 		},
 	}
-	svc := NewLinkService(repo, &fakeClickRecorder{}, cache.NewMemoryCache())
+	svc := NewLinkService(repo, &fakeClickRecorder{}, &fakeClickStats{}, cache.NewMemoryCache())
 
 	resp, err := svc.Create(context.Background(), 42, model.LinkCreateRequest{OriginalURL: "https://example.com"})
 
@@ -109,7 +130,7 @@ func TestLinkService_Create_CustomAliasCollisionDoesNotRetry(t *testing.T) {
 			return apperrors.ErrDuplicateShortCode
 		},
 	}
-	svc := NewLinkService(repo, &fakeClickRecorder{}, cache.NewMemoryCache())
+	svc := NewLinkService(repo, &fakeClickRecorder{}, &fakeClickStats{}, cache.NewMemoryCache())
 
 	resp, err := svc.Create(context.Background(), 42, model.LinkCreateRequest{
 		OriginalURL: "https://example.com",
@@ -130,7 +151,7 @@ func TestLinkService_Create_PropagatesUnrelatedRepositoryError(t *testing.T) {
 			return repoErr
 		},
 	}
-	svc := NewLinkService(repo, &fakeClickRecorder{}, cache.NewMemoryCache())
+	svc := NewLinkService(repo, &fakeClickRecorder{}, &fakeClickStats{}, cache.NewMemoryCache())
 
 	resp, err := svc.Create(context.Background(), 42, model.LinkCreateRequest{OriginalURL: "https://example.com"})
 
@@ -138,6 +159,71 @@ func TestLinkService_Create_PropagatesUnrelatedRepositoryError(t *testing.T) {
 	assert.Nil(t, resp)
 	assert.ErrorIs(t, err, repoErr)
 	assert.Equal(t, 1, repo.createCalls)
+}
+
+func TestLinkService_Stats_Success(t *testing.T) {
+	repo := &fakeLinkRepository{
+		getByIDFunc: func(_ int64) (*model.Link, error) {
+			return &model.Link{ID: 7, ShortCode: "abc1234", UserID: 42}, nil
+		},
+	}
+	stats := &fakeClickStats{counts: map[int64]int64{7: 15}}
+	svc := NewLinkService(repo, &fakeClickRecorder{}, stats, cache.NewMemoryCache())
+
+	resp, err := svc.Stats(context.Background(), 42, 7)
+
+	require.NoError(t, err)
+	assert.Equal(t, &model.LinkStatsResponse{LinkID: 7, ShortCode: "abc1234", ClickCount: 15}, resp)
+}
+
+func TestLinkService_Stats_ForeignLinkIsForbidden(t *testing.T) {
+	repo := &fakeLinkRepository{
+		getByIDFunc: func(_ int64) (*model.Link, error) {
+			return &model.Link{ID: 7, ShortCode: "abc1234", UserID: 99}, nil
+		},
+	}
+	stats := &fakeClickStats{counts: map[int64]int64{7: 15}}
+	svc := NewLinkService(repo, &fakeClickRecorder{}, stats, cache.NewMemoryCache())
+
+	resp, err := svc.Stats(context.Background(), 42, 7)
+
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	assert.ErrorIs(t, err, apperrors.ErrForbidden)
+	assert.Zero(t, stats.calls) // счетчик чужой ссылки не должен даже запрашиваться
+}
+
+func TestLinkService_Stats_LinkNotFound(t *testing.T) {
+	repo := &fakeLinkRepository{
+		getByIDFunc: func(_ int64) (*model.Link, error) {
+			return nil, apperrors.ErrLinkNotFound
+		},
+	}
+	stats := &fakeClickStats{}
+	svc := NewLinkService(repo, &fakeClickRecorder{}, stats, cache.NewMemoryCache())
+
+	resp, err := svc.Stats(context.Background(), 42, 7)
+
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	assert.ErrorIs(t, err, apperrors.ErrLinkNotFound)
+	assert.Zero(t, stats.calls)
+}
+
+func TestLinkService_Stats_PropagatesCountError(t *testing.T) {
+	countErr := errors.New("сбой соединения с базой")
+	repo := &fakeLinkRepository{
+		getByIDFunc: func(_ int64) (*model.Link, error) {
+			return &model.Link{ID: 7, ShortCode: "abc1234", UserID: 42}, nil
+		},
+	}
+	svc := NewLinkService(repo, &fakeClickRecorder{}, &fakeClickStats{err: countErr}, cache.NewMemoryCache())
+
+	resp, err := svc.Stats(context.Background(), 42, 7)
+
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	assert.ErrorIs(t, err, countErr)
 }
 
 func TestGenerateShortCode(t *testing.T) {
