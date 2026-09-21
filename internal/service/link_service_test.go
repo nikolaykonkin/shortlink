@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/nikolaykonkin/shortlink/internal/apperrors"
+	"github.com/nikolaykonkin/shortlink/internal/cache"
 	"github.com/nikolaykonkin/shortlink/internal/model"
 	"github.com/nikolaykonkin/shortlink/internal/repository"
 )
@@ -58,7 +59,7 @@ func TestLinkService_Create_Success(t *testing.T) {
 			return nil
 		},
 	}
-	svc := NewLinkService(repo, &fakeClickRecorder{})
+	svc := NewLinkService(repo, &fakeClickRecorder{}, cache.NewMemoryCache())
 
 	resp, err := svc.Create(context.Background(), 42, model.LinkCreateRequest{OriginalURL: "https://example.com"})
 
@@ -77,7 +78,7 @@ func TestLinkService_Create_RetriesOnCollision(t *testing.T) {
 			return nil
 		},
 	}
-	svc := NewLinkService(repo, &fakeClickRecorder{})
+	svc := NewLinkService(repo, &fakeClickRecorder{}, cache.NewMemoryCache())
 
 	resp, err := svc.Create(context.Background(), 42, model.LinkCreateRequest{OriginalURL: "https://example.com"})
 
@@ -92,7 +93,7 @@ func TestLinkService_Create_ExhaustsAttempts(t *testing.T) {
 			return apperrors.ErrDuplicateShortCode
 		},
 	}
-	svc := NewLinkService(repo, &fakeClickRecorder{})
+	svc := NewLinkService(repo, &fakeClickRecorder{}, cache.NewMemoryCache())
 
 	resp, err := svc.Create(context.Background(), 42, model.LinkCreateRequest{OriginalURL: "https://example.com"})
 
@@ -108,7 +109,7 @@ func TestLinkService_Create_CustomAliasCollisionDoesNotRetry(t *testing.T) {
 			return apperrors.ErrDuplicateShortCode
 		},
 	}
-	svc := NewLinkService(repo, &fakeClickRecorder{})
+	svc := NewLinkService(repo, &fakeClickRecorder{}, cache.NewMemoryCache())
 
 	resp, err := svc.Create(context.Background(), 42, model.LinkCreateRequest{
 		OriginalURL: "https://example.com",
@@ -129,7 +130,7 @@ func TestLinkService_Create_PropagatesUnrelatedRepositoryError(t *testing.T) {
 			return repoErr
 		},
 	}
-	svc := NewLinkService(repo, &fakeClickRecorder{})
+	svc := NewLinkService(repo, &fakeClickRecorder{}, cache.NewMemoryCache())
 
 	resp, err := svc.Create(context.Background(), 42, model.LinkCreateRequest{OriginalURL: "https://example.com"})
 

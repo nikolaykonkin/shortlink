@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/nikolaykonkin/shortlink/internal/cache"
 	"github.com/nikolaykonkin/shortlink/internal/handler"
 	"github.com/nikolaykonkin/shortlink/internal/middleware"
 	"github.com/nikolaykonkin/shortlink/internal/repository"
@@ -66,7 +67,8 @@ func main() {
 	go clickWorker.Run(ctx)
 
 	linkRepo := repository.NewPostgresLinkRepository(pool)
-	linkService := service.NewLinkService(linkRepo, clickWorker)
+	linkCache := cache.NewMemoryCache()
+	linkService := service.NewLinkService(linkRepo, clickWorker, linkCache)
 	linkHandler := handler.NewLinkHandler(linkService)
 
 	requireAuth := middleware.AuthMiddleware([]byte(jwtSecret))

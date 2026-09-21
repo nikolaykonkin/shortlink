@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/nikolaykonkin/shortlink/internal/apperrors"
+	"github.com/nikolaykonkin/shortlink/internal/cache"
 	"github.com/nikolaykonkin/shortlink/internal/model"
 	"github.com/nikolaykonkin/shortlink/internal/repository"
 )
@@ -28,11 +29,12 @@ type ClickRecorder interface {
 type LinkService struct {
 	links  repository.LinkRepository
 	clicks ClickRecorder
+	cache  cache.Cacher
 }
 
 // NewLinkService создает сервис ссылок
-func NewLinkService(links repository.LinkRepository, clicks ClickRecorder) *LinkService {
-	return &LinkService{links: links, clicks: clicks}
+func NewLinkService(links repository.LinkRepository, clicks ClickRecorder, linkCache cache.Cacher) *LinkService {
+	return &LinkService{links: links, clicks: clicks, cache: linkCache}
 }
 
 // Create создает короткую ссылку для req.OriginalURL, привязанную к userID
@@ -96,7 +98,13 @@ func (s *LinkService) Delete(ctx context.Context, userID, linkID int64) error {
 		return apperrors.ErrForbidden
 	}
 
-	return s.links.Delete(ctx, linkID)
+	if err := s.links.Delete(ctx, linkID); err != nil {
+		return err
+	}
+
+	s.cache.Delete(link.ShortCode)
+
+	return nil
 }
 
 // Resolve возвращает ссылку по короткому коду для редиректа
@@ -105,16 +113,31 @@ func (s *LinkService) Delete(ctx context.Context, userID, linkID int64) error {
 // не дожидаясь фонового воркера очистки — иначе редирект продолжал бы
 // работать до случайного момента, когда воркер дойдет до этой строки
 func (s *LinkService) Resolve(ctx context.Context, shortCode string) (*model.Link, error) {
+	if link, ok := s.cache.Get(shortCode); ok {
+		if isExpired(link) {
+			return nil, apperrors.ErrLinkNotFound
+		}
+		return link, nil
+	}
+
 	link, err := s.links.GetByShortCode(ctx, shortCode)
 	if err != nil {
 		return nil, err
 	}
 
-	if link.ExpiresAt != nil && link.ExpiresAt.Before(time.Now()) {
+	if isExpired(link) {
 		return nil, apperrors.ErrLinkNotFound
 	}
 
+	s.cache.Set(shortCode, link)
+
 	return link, nil
+}
+
+// isExpired проверяется и для попадания в кэш, и для промаха: запись в кэше не узнает
+// о наступлении своего expires_at сама, поэтому срок годности пересчитывается при каждом обращении
+func isExpired(link *model.Link) bool {
+	return link.ExpiresAt != nil && link.ExpiresAt.Before(time.Now())
 }
 
 // RecordClick регистрирует переход по ссылке linkID — отдельно от Resolve, чтобы поиск ссылки оставался чистой операцией без побочных эффектов
