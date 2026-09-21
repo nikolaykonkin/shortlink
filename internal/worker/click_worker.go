@@ -33,9 +33,14 @@ func NewClickWorker(clicks repository.ClickRepository, batchSize int, flushInter
 	}
 }
 
-// Record ставит linkID в очередь на запись
+// Record ставит linkID в очередь на запись; при переполненном канале клик отбрасывается —
+// задержать редирект дороже, чем потерять одну запись статистики
 func (w *ClickWorker) Record(linkID int64) {
-	w.queue <- linkID
+	select {
+	case w.queue <- linkID:
+	default:
+		log.Printf("канал кликов переполнен, клик по ссылке %d потерян", linkID)
+	}
 }
 
 // Run читает очередь до закрытия канала, сбрасывая накопленное в БД

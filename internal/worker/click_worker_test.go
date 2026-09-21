@@ -107,6 +107,27 @@ func TestClickWorker_StopDrainsBuffer(t *testing.T) {
 	assert.ElementsMatch(t, []int64{1, 2, 3}, repo.allLinkIDs())
 }
 
+func TestClickWorker_RecordDoesNotBlockWhenQueueIsFull(t *testing.T) {
+	repo := &fakeClickRepository{}
+	w := NewClickWorker(repo, 100, time.Hour) // Run не запускаем — очередь никто не разбирает
+
+	for i := 0; i < clickChannelBuffer; i++ {
+		w.Record(int64(i))
+	}
+
+	done := make(chan struct{})
+	go func() {
+		w.Record(999) // до фикса эта отправка заблокировалась бы навсегда
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Record заблокировался при переполненном канале")
+	}
+}
+
 func TestClickWorker_StopWithEmptyBuffer(t *testing.T) {
 	repo := &fakeClickRepository{}
 	w := NewClickWorker(repo, 100, time.Hour)
