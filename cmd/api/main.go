@@ -67,6 +67,12 @@ func main() {
 	go clickWorker.Run(ctx)
 
 	linkRepo := repository.NewPostgresLinkRepository(pool)
+
+	const expiredLinksPurgeInterval = 10 * time.Minute
+
+	scheduler := worker.NewScheduler(linkRepo, expiredLinksPurgeInterval)
+	go scheduler.Run(ctx)
+
 	linkCache := cache.NewMemoryCache()
 	linkService := service.NewLinkService(linkRepo, clickWorker, linkCache)
 	linkHandler := handler.NewLinkHandler(linkService)
