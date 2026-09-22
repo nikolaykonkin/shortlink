@@ -34,7 +34,7 @@ func TestRateLimiter_Allow_ExceedsLimit(t *testing.T) {
 
 	assert.False(t, rl.Allow(1))
 	assert.False(t, rl.Allow(1))
-	assert.Equal(t, 2, rl.counters[1], "отклоненные запросы не должны увеличивать счетчик")
+	assert.Equal(t, 2, rl.countFor(1), "отклоненные запросы не должны увеличивать счетчик")
 }
 
 func TestRateLimiter_Allow_CountsUsersSeparately(t *testing.T) {
