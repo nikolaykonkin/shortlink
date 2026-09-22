@@ -79,11 +79,18 @@ func main() {
 
 	requireAuth := middleware.AuthMiddleware([]byte(jwtSecret))
 
+	const (
+		linkCreateLimit  = 10
+		linkCreateWindow = time.Minute
+	)
+
+	rateLimiter := middleware.NewRateLimiter(linkCreateLimit, linkCreateWindow)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", healthHandler)
 	mux.HandleFunc("POST /api/register", authHandler.Register)
 	mux.HandleFunc("POST /api/login", authHandler.Login)
-	mux.Handle("POST /api/links", requireAuth(http.HandlerFunc(linkHandler.Create)))
+	mux.Handle("POST /api/links", requireAuth(rateLimiter.Middleware(http.HandlerFunc(linkHandler.Create))))
 	mux.Handle("DELETE /api/links/{id}", requireAuth(http.HandlerFunc(linkHandler.Delete)))
 	mux.Handle("GET /api/links/{id}/stats", requireAuth(http.HandlerFunc(linkHandler.Stats)))
 	mux.HandleFunc("GET /{shortCode}", linkHandler.Redirect)
