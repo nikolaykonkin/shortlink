@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -119,4 +120,33 @@ func TestRateLimiter_Middleware_SkipsRequestsWithoutUser(t *testing.T) {
 	}
 
 	assert.Equal(t, 3, calls)
+}
+
+// TestRateLimiter_Allow_Concurrent гоняет Allow из многих горутин одновременно: каждая
+// горутина обслуживает одного пользователя, поэтому итоговый счетчик детерминирован
+// и проверяется точно — гонка между пользователями была бы видна как расхождение счетчиков
+func TestRateLimiter_Allow_Concurrent(t *testing.T) {
+	rl := NewRateLimiter(1000, time.Hour) // лимит заведомо выше нагрузки
+
+	const (
+		goroutines           = 50
+		requestsPerGoroutine = 20
+	)
+
+	var wg sync.WaitGroup
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(userID int64) {
+			defer wg.Done()
+			for j := 0; j < requestsPerGoroutine; j++ {
+				rl.Allow(userID)
+			}
+		}(int64(i))
+	}
+	wg.Wait()
+
+	for i := 0; i < goroutines; i++ {
+		assert.Equal(t, requestsPerGoroutine, rl.countFor(int64(i)),
+			"счетчик пользователя %d должен быть равен числу его запросов", i)
+	}
 }
