@@ -1,0 +1,22 @@
+# Git
+.git
+.gitignore
+
+# Документация
+*.md
+
+# Docker
+docker-compose.yml
+Dockerfile
+.dockerignore
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Локальные артефакты
+bin/
+tmp/
+*.test
+.env

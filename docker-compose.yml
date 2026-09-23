@@ -1,0 +1,34 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: shortlink
+      POSTGRES_PASSWORD: shortlink
+      POSTGRES_DB: shortlink
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shortlink -d shortlink"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    # порт наружу не проброшен — app обращается к postgres по внутреннему DNS docker-сети
+    # (postgres:5432), с хоста база не нужна. Для отладки psql/DBeaver с хоста раскомментировать:
+    # ports:
+    #   - "5432:5432"
+
+  app:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://shortlink:shortlink@postgres:5432/shortlink?sslmode=disable
+      JWT_SECRET: change-me-in-production
+      PORT: 8080
+      # APPLY_MIGRATIONS_ON_START не задан — используется значение по умолчанию (true) из main.go
+    ports:
+      - "8080:8080"
+
+volumes:
+  postgres_data:
