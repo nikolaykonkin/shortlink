@@ -14,8 +14,8 @@ services:
       retries: 5
     # порт наружу не проброшен — app обращается к postgres по внутреннему DNS docker-сети
     # (postgres:5432), с хоста база не нужна. Для отладки psql/DBeaver с хоста раскомментировать:
-    # ports:
-    #   - "5432:5432"
+    ports:
+       - "5432:5432"
 
   app:
     build: .
