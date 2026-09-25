@@ -103,7 +103,7 @@ func main() {
 	rateLimiter := middleware.NewRateLimiter(linkCreateLimit, linkCreateWindow)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/health", healthHandler)
+	mux.HandleFunc("GET /api/health", healthHandler(pool))
 	mux.HandleFunc("POST /api/register", authHandler.Register)
 	mux.HandleFunc("POST /api/login", authHandler.Login)
 	mux.Handle("POST /api/links", requireAuth(rateLimiter.Middleware(http.HandlerFunc(linkHandler.Create))))
@@ -175,8 +175,35 @@ func applyMigrationsOnStart() bool {
 	return apply
 }
 
-// healthHandler — базовый health-check, чтобы убедиться, что сервис жив
-func healthHandler(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("ok"))
+// healthCheckTimeout ограничивает Ping — без таймаута зависшая БД повесила бы health endpoint
+// на неопределенный срок, и балансировщик не получил бы ответа вовремя
+// 2 секунды — с большим запасом для обычного Ping (тот укладывается в единицы миллисекунд),
+// но не настолько долго, чтобы держать балансировщик в неведении
+const healthCheckTimeout = 2 * time.Second
+
+// Pinger — минимальный интерфейс, который нужен health-check от пула соединений
+//
+// Заведен здесь, а не в internal/repository: это не доступ к домену приложения, а проверка конкретной
+// инфраструктурной зависимости, поэтому интерфейс объявлен рядом с единственным местом использования
+// *pgxpool.Pool удовлетворяет ему без адаптеров — у него уже есть метод Ping(ctx) error
+type Pinger interface {
+	Ping(ctx context.Context) error
+}
+
+// healthHandler проверяет доступность БД, а не только то, что процесс жив — без этого
+// балансировщик продолжал бы слать трафик на инстанс с отвалившейся базой
+func healthHandler(db Pinger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), healthCheckTimeout)
+		defer cancel()
+
+		if err := db.Ping(ctx); err != nil {
+			log.Printf("health-check: БД недоступна: %v", err)
+			http.Error(w, "database unavailable", http.StatusServiceUnavailable)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	}
 }
