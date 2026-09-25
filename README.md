@@ -1,5 +1,7 @@
 # shortlink
 
+[![CI](https://github.com/nikolaykonkin/shortlink/actions/workflows/ci.yml/badge.svg)](https://github.com/nikolaykonkin/shortlink/actions/workflows/ci.yml)
+
 REST API сервиса сокращения ссылок на Go, с аналитикой переходов, JWT-аутентификацией и rate limiting. Небольшой проект, где на знакомой предметной области разобраны архитектурные и конкурентные паттерны: слоистая структура, асинхронная запись через буферизующий воркер, graceful shutdown, тесты на in-memory fakes вместо моков.
 
 ## Стек
@@ -191,8 +193,6 @@ go test -race ./...
 - Общие in-memory fakes для тестов продублированы в пакетах `service`
   и `handler` — стоило бы вынести их в `internal/testutil`.
 - Нет бенчмарков для in-memory кэша.
-- Нет CI (GitHub Actions) — тесты и `go vet` пока запускаются только
-  локально.
 - Health-check не проверяет доступность БД, только то, что процесс
   жив.
 - Rate limiter — fixed window и только в памяти процесса: при
