@@ -188,10 +188,25 @@ go test ./...
 go test -race ./...
 ```
 
+## Производительность
+
+```bash
+go test -bench=. -benchmem ./internal/cache/
+```
+
+На Apple M1:
+
+```
+BenchmarkMemoryCache_Get_Hit-8      15533257    82.22 ns/op    0 B/op    0 allocs/op
+BenchmarkMemoryCache_Get_Miss-8     86788810    13.83 ns/op    0 B/op    0 allocs/op
+BenchmarkMemoryCache_Set-8          56827152    20.86 ns/op    0 B/op    0 allocs/op
+```
+
+Все три сценария — 0 аллокаций. `Get_Hit` медленнее `Get_Miss` (82 vs 14 ns/op), потому что запускается через `b.RunParallel`: десятки горутин одновременно берут `RWMutex.RLock` на одном и том же кэше, и процессор тратит время на согласование доступа к разделяемой памяти, а не на сам поиск в map. Это реальный паттерн редиректов — параллельный доступ к кэшу всегда дороже последовательного, даже если все операции — только чтение.
+
 ## Что можно улучшить
 
 - Общие in-memory fakes для тестов продублированы в пакетах `service`
   и `handler` — стоило бы вынести их в `internal/testutil`.
-- Нет бенчмарков для in-memory кэша.
 - Rate limiter — fixed window и только в памяти процесса: при
   нескольких инстансах сервиса лимит не общий.
