@@ -100,7 +100,9 @@ func main() {
 		linkCreateWindow = time.Minute
 	)
 
-	rateLimiter := middleware.NewRateLimiter(linkCreateLimit, linkCreateWindow)
+	// сейчас единственная реализация хранилища счетчиков — in-memory
+	rateStore := middleware.NewMemoryRateStore()
+	rateLimiter := middleware.NewRateLimiter(rateStore, linkCreateLimit, linkCreateWindow)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", healthHandler(pool))
@@ -124,7 +126,7 @@ func main() {
 		}
 	}()
 
-	// ждем либо сигнал остановки, либо падение сервера: во втором случае Shutdown
+	// Ждем либо сигнал остановки, либо падение сервера: во втором случае Shutdown
 	// ниже не сделает ничего (слушатель уже мертв), но остановка воркера, планировщика
 	// и пула все равно должна пройти, а не потеряться в defer, который не выполнится после log.Fatal
 	select {
