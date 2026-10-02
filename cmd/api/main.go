@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -18,6 +20,7 @@ import (
 	"github.com/nikolaykonkin/shortlink/internal/service"
 	"github.com/nikolaykonkin/shortlink/internal/worker"
 	"github.com/nikolaykonkin/shortlink/pkg/database"
+	"github.com/redis/go-redis/v9"
 )
 
 // jwtTTL — константа, не переменная окружения: срок жизни токена не зависит от окружения,
@@ -26,9 +29,25 @@ const jwtTTL = 24 * time.Hour
 
 // shutdownTimeout — сколько ждать завершения уже идущих запросов при остановке
 // Если клиент завис и не отпускает соединение, Shutdown без таймаута ждал бы вечно;
-// 10 секунд — компромисс между тем, чтобы не оборвать нормальные запросы,
-// и тем, чтобы не блокировать остановку контейнера на неопределенный срок
+// 10 секунд — компромисс между тем, чтобы не оборвать нормальные запросы, и тем,
+// чтобы не блокировать остановку контейнера на неопределенный срок
 const shutdownTimeout = 10 * time.Second
+
+// Допустимые значения RATE_STORE
+const (
+	rateStoreMemory = "memory"
+	rateStoreRedis  = "redis"
+)
+
+// Таймауты Redis-клиента заданы явно, а не оставлены по умолчанию: rate limiter стоит на пути
+// каждого создания ссылки, и при недоступном Redis (fail-closed) клиент должен получить 503 за секунды,
+// а не ждать десятки секунд, пока клиент Redis сам сдастся
+// redisStartupTimeout — сколько ждать ответа Redis на проверку при старте сервиса
+const (
+	redisDialTimeout    = 2 * time.Second
+	redisIOTimeout      = time.Second
+	redisStartupTimeout = 3 * time.Second
+)
 
 func main() {
 	port := os.Getenv("PORT")
@@ -69,6 +88,13 @@ func main() {
 		log.Print("автоприменение миграций отключено (APPLY_MIGRATIONS_ON_START=false)")
 	}
 
+	// хранилище счетчиков rate limiter создается до запуска фоновых горутин: если выбран Redis,
+	// а он недоступен, сервис должен упасть сразу, пока нечего останавливать и сливать
+	rateStore, closeRateStore, err := newRateStore(ctx)
+	if err != nil {
+		log.Fatalf("хранилище rate limiter: %v", err)
+	}
+
 	userRepo := repository.NewPostgresUserRepository(pool)
 	userService := service.NewUserService(userRepo, []byte(jwtSecret), jwtTTL)
 	authHandler := handler.NewAuthHandler(userService)
@@ -100,8 +126,6 @@ func main() {
 		linkCreateWindow = time.Minute
 	)
 
-	// сейчас единственная реализация хранилища счетчиков — in-memory
-	rateStore := middleware.NewMemoryRateStore()
 	rateLimiter := middleware.NewRateLimiter(rateStore, linkCreateLimit, linkCreateWindow)
 
 	mux := http.NewServeMux()
@@ -148,7 +172,11 @@ func main() {
 	//    финальный буфер один раз, а не гоняется за потоком, который все еще растет
 	// 3. scheduler: останавливается последним, потому что это не критично: недочищенные
 	//    просроченные ссылки удалятся на первом тике после следующего запуска сервиса
-	// 4. pool.Close(): только после того, как оба воркера гарантированно закончили свои последние
+	// 4. клиент Redis (только при RATE_STORE=redis): после HTTP-сервера, потому что rate limiter
+	//    ходит в Redis из обработчиков запросов — если закрыть клиент раньше, еще идущие запросы
+	//    получили бы ошибку и 503 вместо нормального ответа. Воркеры и пул Redis не используют,
+	//    поэтому порядок относительно них не принципиален и зафиксирован просто для единообразия
+	// 5. pool.Close(): только после того, как оба воркера гарантированно закончили свои последние
 	//    обращения к БД, иначе их финальные запросы попали бы в закрытый пул
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		log.Printf("graceful shutdown HTTP-сервера: %v", err)
@@ -157,7 +185,65 @@ func main() {
 	clickWorker.Stop()
 	scheduler.Stop()
 
+	closeRateStore()
+
 	pool.Close()
+}
+
+// newRateStore выбирает реализацию RateStore по RATE_STORE (по умолчанию memory) и возвращает ее
+// вместе с функцией освобождения ресурсов — для memory она пустая, для redis закрывает клиент
+//
+// Неизвестное значение RATE_STORE — ошибка, а не молчаливый откат на memory: опечатка в "redis"
+// тихо дала бы счетчик на каждый инстанс отдельно — ровно то, от чего защищает общий Redis
+// По той же причине недоступный Redis при старте — ошибка (fail-fast): сервис не должен
+// запускаться в режиме, отличном от выбранного
+func newRateStore(ctx context.Context) (middleware.RateStore, func(), error) {
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv("RATE_STORE")))
+	if mode == "" {
+		mode = rateStoreMemory
+	}
+
+	switch mode {
+	case rateStoreMemory:
+		log.Print("rate limiter: счетчики в памяти процесса (RATE_STORE=memory)")
+
+		return middleware.NewMemoryRateStore(), func() {}, nil
+
+	case rateStoreRedis:
+		addr := os.Getenv("REDIS_ADDR")
+		if addr == "" {
+			addr = "localhost:6379"
+		}
+
+		client := redis.NewClient(&redis.Options{
+			Addr:         addr,
+			DialTimeout:  redisDialTimeout,
+			ReadTimeout:  redisIOTimeout,
+			WriteTimeout: redisIOTimeout,
+		})
+
+		pingCtx, cancel := context.WithTimeout(ctx, redisStartupTimeout)
+		defer cancel()
+
+		if err := client.Ping(pingCtx).Err(); err != nil {
+			_ = client.Close()
+
+			return nil, nil, fmt.Errorf("RATE_STORE=redis, но Redis %s недоступен: %w", addr, err)
+		}
+
+		log.Printf("rate limiter: общие счетчики в Redis (%s)", addr)
+
+		closeClient := func() {
+			if err := client.Close(); err != nil {
+				log.Printf("закрытие клиента Redis: %v", err)
+			}
+		}
+
+		return middleware.NewRedisRateStore(client), closeClient, nil
+
+	default:
+		return nil, nil, fmt.Errorf("неизвестное значение RATE_STORE=%q (допустимо: %s, %s)", mode, rateStoreMemory, rateStoreRedis)
+	}
 }
 
 // applyMigrationsOnStart решает, применять ли миграции при старте (по умолчанию true)
